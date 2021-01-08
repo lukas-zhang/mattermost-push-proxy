@@ -85,6 +85,7 @@ func (me *AndroidNotificationServerJ) SendNotification(msg *PushNotification) Pu
 	ad.SetID(s)
 	var message jpushclient.Message
 	message.Content = msg.Message
+	message.AddExtras("data", data)
 	payload := jpushclient.NewPushPayLoad()
 	payload.SetPlatform(&pf)
 	payload.SetAudience(&ad)
