@@ -5,35 +5,36 @@ package server
 
 import (
 	"time"
+	"strings"
 	"encoding/json"
-	jpush "github.com/ylywyn/jpush-api-go-client"
+	"github.com/ylywyn/jpush-api-go-client"
 	"github.com/kyokomi/emoji"
 )
 
-type AndroidNotificationServer struct {
+type AndroidNotificationServerJ struct {
 	AndroidPushSettings AndroidPushSettings
 	metrics             *metrics
 	logger              *Logger
 }
 
-type PushError struct {
+type JPushError struct {
 	code      string
 	message   string
 }
 
-type PushResponse struct {
-    err     *PushError
+type JPushResponse struct {
+    err     *JPushError
 }
 
 func NewAndroidNotificationServerJ(settings AndroidPushSettings, logger *Logger, metrics *metrics) NotificationServer {
-	return &AndroidNotificationServer{
+	return &AndroidNotificationServerJ{
 		AndroidPushSettings: settings,
 		metrics:             metrics,
 		logger:              logger,
 	}
 }
 
-func (me *AndroidNotificationServer) Initialize() bool {
+func (me *AndroidNotificationServerJ) Initialize() bool {
 	me.logger.Infof("Initializing Android notification server for type=%v", me.AndroidPushSettings.Type)
 
 	if me.AndroidPushSettings.AndroidAPIKey == "" {
@@ -44,7 +45,7 @@ func (me *AndroidNotificationServer) Initialize() bool {
 	return true
 }
 
-func (me *AndroidNotificationServer) SendNotification(msg *PushNotification) PushResponse {
+func (me *AndroidNotificationServerJ) SendNotification(msg *PushNotification) PushResponse {
 	pushType := msg.Type
 	data := map[string]interface{}{
 		"ack_id":     msg.AckID,
@@ -82,29 +83,22 @@ func (me *AndroidNotificationServer) SendNotification(msg *PushNotification) Pus
 	var ad jpushclient.Audience
 	s := []string{msg.DeviceID}
 	ad.SetID(s)
-	var msg jpushclient.Message
-	msg.Content = msg.Message
+	var message jpushclient.Message
+	message.Content = msg.Message
 	payload := jpushclient.NewPushPayLoad()
 	payload.SetPlatform(&pf)
 	payload.SetAudience(&ad)
-	payload.SetMessage(&msg)
-	payload.SetNotice(&notice)
+	payload.SetMessage(&message)
 	bytes, _ := payload.ToBytes()
 
 	if me.AndroidPushSettings.AndroidAPIKey != "" {
 		keySec := strings.Split(me.AndroidPushSettings.AndroidAPIKey, ":")
-		sender, err := jpushclient.NewPushClient(keySec[1], keySec[0])
-		if err != nil {
-			if me.metrics != nil {
-				me.metrics.incrementFailure(PushNotifyAndroid, pushType, "invalid ApiKey")
-			}
-			return NewErrorPushResponse(err.Error())
-		}
+		sender := jpushclient.NewPushClient(keySec[1], keySec[0])
 
 		me.logger.Infof("Sending android push notification for device=%v and type=%v", me.AndroidPushSettings.Type, msg.Type)
 
 		start := time.Now()
-		resp, err := c.Send(bytes)
+		resp, err := sender.Send(bytes)
 		if me.metrics != nil {
 			me.metrics.observerNotificationResponse(PushNotifyAndroid, time.Since(start).Seconds())
 		}
@@ -117,8 +111,8 @@ func (me *AndroidNotificationServer) SendNotification(msg *PushNotification) Pus
 			return NewErrorPushResponse("unknown transport error")
 		}
 
-		var response PushResponse
-		err := json.Unmarshal([]byte(resp), &response)
+		var response JPushResponse
+		err = json.Unmarshal([]byte(resp), &response)
 		if err != nil {
 			me.logger.Errorf("Failed to unmarshal response: %v sid=%v did=%v err=%v type=%v", resp, msg.ServerID, msg.DeviceID, err, me.AndroidPushSettings.Type)
 			if me.metrics != nil {
@@ -130,10 +124,11 @@ func (me *AndroidNotificationServer) SendNotification(msg *PushNotification) Pus
 		if response.err != nil {
 			me.logger.Errorf("Failed to send J push sid=%v did=%v err=%v type=%v", msg.ServerID, msg.DeviceID, err, me.AndroidPushSettings.Type)
 			if me.metrics != nil {
-				me.metrics.incrementFailure(PushNotifyAndroid, pushType, err.message)
+				me.metrics.incrementFailure(PushNotifyAndroid, pushType, response.err.message)
 			}
-			return NewErrorPushResponse(err.message)
+			return NewErrorPushResponse(response.err.message)
 		}
+		me.logger.Errorf("Sent resp=%v", resp)
 	}
 
 	if me.metrics != nil {
