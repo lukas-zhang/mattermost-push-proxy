@@ -84,15 +84,14 @@ func (me *AndroidNotificationServerJ) SendNotification(msg *PushNotification) Pu
 	s := []string{msg.DeviceID}
 	ad.SetID(s)
 	var notice jpushclient.Notice
-	notice.SetAlert(msg.Message)
-	notice.SetAndroidNotice(&jpushclient.AndroidNotice{Title: msg.SenderName, Extras: make(map[string]interface{})})
+	notice.SetAlert("New Message")
+	notice.SetAndroidNotice(&jpushclient.AndroidNotice{Alert: msg.Message, Title: msg.SenderName, Extras: make(map[string]interface{})})
 	notice.Android.Extras["data"] = data
 	payload := jpushclient.NewPushPayLoad()
 	payload.SetPlatform(&pf)
 	payload.SetAudience(&ad)
-	payload.SetMessage(&message)
+        payload.SetNotice(&notice)
 	bytes, _ := payload.ToBytes()
-
 	if me.AndroidPushSettings.AndroidAPIKey != "" {
 		keySec := strings.Split(me.AndroidPushSettings.AndroidAPIKey, ":")
 		sender := jpushclient.NewPushClient(keySec[1], keySec[0])
