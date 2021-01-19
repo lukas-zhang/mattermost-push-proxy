@@ -4,14 +4,19 @@
 package server
 
 import (
+	"os"
 	"time"
 	"strings"
 	"bytes"
 	"io/ioutil"
+	"strconv"
 	"encoding/json"
 	"net/http"
-	"github.com/kyokomi/emoji"
+	"path/filepath"
 )
+
+var WechatAccessToken string
+var WechatExpiresTime time.Time
 
 type AndroidNotificationServerW struct {
 	AndroidPushSettings AndroidPushSettings
@@ -62,31 +67,19 @@ func (me *AndroidNotificationServerW) Initialize() bool {
 
 func (me *AndroidNotificationServerW) SendNotification(msg *PushNotification) PushResponse {
 	pushType := msg.Type
-	data := map[string]interface{}{
-		"ack_id":     msg.AckID,
-		"type":       pushType,
-		"badge":      msg.Badge,
-		"version":    msg.Version,
-		"channel_id": msg.ChannelID,
+	var data map[string]string
+	if _, err := os.Stat("./config/wechat-device-ids.json"); err != nil {
+		return NewErrorPushResponse("Map not found error")
 	}
-
-	if msg.IsIDLoaded {
-		data["post_id"] = msg.PostID
-		data["message"] = msg.Message
-		data["id_loaded"] = true
-		data["sender_id"] = msg.SenderID
-		data["sender_name"] = "Someone"
-	} else if pushType == PushTypeMessage || pushType == PushTypeSession {
-		data["team_id"] = msg.TeamID
-		data["sender_id"] = msg.SenderID
-		data["sender_name"] = msg.SenderName
-		data["message"] = emoji.Sprint(msg.Message)
-		data["channel_name"] = msg.ChannelName
-		data["post_id"] = msg.PostID
-		data["root_id"] = msg.RootID
-		data["override_username"] = msg.OverrideUsername
-		data["override_icon_url"] = msg.OverrideIconURL
-		data["from_webhook"] = msg.FromWebhook
+	fileName, _ := filepath.Abs("./config/wechat-device-ids.json")
+	mapData, _ := ioutil.ReadFile(fileName)
+	err := json.Unmarshal(mapData, &data)
+	if err != nil {
+		return NewErrorPushResponse("Unmarshal map error")
+	}
+	deviceId, exists := data[msg.DeviceID]
+	if !exists {
+		return NewErrorPushResponse("No map error")
 	}
 
 	if me.metrics != nil {
@@ -95,10 +88,10 @@ func (me *AndroidNotificationServerW) SendNotification(msg *PushNotification) Pu
 
 	dataMsg := make(map[string]*KeyWordData)
 	dataMsg["content"] = &KeyWordData{
-		Value: msg.Message,
+		Value: msg.SenderName + ": " + msg.Message,
 	}
 	message := &TemplateMsg{
-		Touser:      "o8_LH6eyjjwe3RrP_VAs8EHGAHZU",
+		Touser:      deviceId,
 		Template_id: "3qW96y74I5Wari8oFvmu82fj9yS4LNyfPrmtLadydrI",
 		Data:        dataMsg,
 	}
@@ -176,6 +169,9 @@ func (me *AndroidNotificationServerW) SendNotification(msg *PushNotification) Pu
 
 
 func GetToken(key string) (string, error) {
+	if time.Now().Before(WechatExpiresTime) {
+		return WechatAccessToken, nil
+	}
 	idSec := strings.Split(key, ":")
 	url := "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=" + idSec[0] + "&secret=" + idSec[1]
 	resp, err := http.Get(url)
@@ -199,5 +195,8 @@ func GetToken(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return response.AccessToken, nil
+	WechatAccessToken = response.AccessToken
+	s, _ := time.ParseDuration(strconv.Itoa(response.ExpiresIn) + "s")
+	WechatExpiresTime = time.Now().Add(s)
+	return WechatAccessToken, nil
 }

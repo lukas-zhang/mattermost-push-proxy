@@ -77,7 +77,7 @@ func (s *Server) Start() {
 	}
 
 	for _, settings := range s.cfg.AndroidPushSettings {
-		server := NewAndroidNotificationServerJ(settings, s.logger, m)
+		server := NewAndroidNotificationServerW(settings, s.logger, m)
 		if server.Initialize() {
 			s.pushTargets[settings.Type] = server
 		}
